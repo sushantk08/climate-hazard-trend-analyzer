@@ -1,3 +1,4 @@
+
 from datetime import date, datetime, timezone
 
 import httpx
@@ -5,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from app.heatwave import calculate_percentile, detect_heatwaves
+from app.trends import calculate_linear_trend
 from app.weather_cache import get_weather_records_collection
 
 
@@ -13,7 +15,6 @@ app = FastAPI(
     description="API for exploring historical weather and heatwave trends.",
     version="0.1.0",
 )
-
 
 
 async def fetch_daily_temperatures(
@@ -29,7 +30,7 @@ async def fetch_daily_temperatures(
         f"{start_date.isoformat()}:{end_date.isoformat()}"
     )
 
-    # First, check MongoDB for previously saved data.
+    # Check MongoDB for previously saved weather data.
     try:
         collection = await run_in_threadpool(
             get_weather_records_collection
@@ -50,11 +51,11 @@ async def fetch_daily_temperatures(
             detail="Could not access the weather database.",
         )
 
-    # If the data already exists, return it without calling Open-Meteo.
+    # Reuse cached data when the same request already exists.
     if cached_record:
         return cached_record["location"], cached_record["records"]
 
-    # Otherwise, fetch the data from Open-Meteo.
+    # Fetch weather data from Open-Meteo when the cache is empty.
     url = "https://archive-api.open-meteo.com/v1/archive"
 
     params = {
@@ -95,7 +96,12 @@ async def fetch_daily_temperatures(
     dates = daily_data.get("time", [])
     temperatures = daily_data.get("temperature_2m_max", [])
 
-    if not dates or len(dates) != len(temperatures):
+    if (
+        not isinstance(dates, list)
+        or not isinstance(temperatures, list)
+        or not dates
+        or len(dates) != len(temperatures)
+    ):
         raise HTTPException(
             status_code=502,
             detail="The weather service returned incomplete data.",
@@ -136,14 +142,17 @@ async def fetch_daily_temperatures(
             upsert=True,
         )
 
-    except Exception:
+    except Exception as exc:
+        print(
+            f"Weather database save failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
         raise HTTPException(
             status_code=503,
             detail="Could not save weather data to the database.",
         )
 
     return location, records
-
 
 
 @app.get("/")
@@ -172,7 +181,10 @@ async def get_historical_weather(
         )
 
     location, records = await fetch_daily_temperatures(
-        latitude, longitude, start_date, end_date
+        latitude,
+        longitude,
+        start_date,
+        end_date,
     )
 
     return {
@@ -196,6 +208,7 @@ async def analyze_heatwaves(
     baseline_start_date: date = Query(default=date(1991, 1, 1)),
     baseline_end_date: date = Query(default=date(2020, 12, 31)),
 ):
+    # Validate the requested dates.
     if start_date > end_date:
         raise HTTPException(
             status_code=400,
@@ -208,6 +221,7 @@ async def analyze_heatwaves(
             detail="Baseline start date must not be after its end date.",
         )
 
+    # Fetch baseline and analysis temperatures.
     location, baseline_records = await fetch_daily_temperatures(
         latitude,
         longitude,
@@ -222,6 +236,7 @@ async def analyze_heatwaves(
         end_date,
     )
 
+    # Calculate the 95th-percentile baseline temperature.
     baseline_temperatures = [
         record["temperature_max_c"]
         for record in baseline_records
@@ -238,12 +253,14 @@ async def analyze_heatwaves(
             detail="No valid baseline temperatures are available.",
         )
 
+    # Detect heatwaves lasting at least three consecutive days.
     events = detect_heatwaves(
         analysis_records,
         threshold_c=threshold,
         min_duration=3,
     )
 
+    # Calculate the total number of days classified as heatwave days.
     total_heatwave_days = sum(
         event["duration_days"] for event in events
     )
@@ -258,6 +275,52 @@ async def analyze_heatwaves(
         (event["duration_days"] for event in events),
         default=0,
     )
+
+    # Prepare a count for every calendar year in the analysis period.
+    first_year = start_date.year
+    last_year = end_date.year
+
+    yearly_counts = {
+        year: 0
+        for year in range(first_year, last_year + 1)
+    }
+
+    # Count each heatwave in the year it started.
+    for event in events:
+        event_year = date.fromisoformat(
+            event["start_date"]
+        ).year
+
+        if event_year in yearly_counts:
+            yearly_counts[event_year] += 1
+
+    yearly_data = [
+        {
+            "year": year,
+            "heatwave_count": count,
+        }
+        for year, count in yearly_counts.items()
+    ]
+
+    # Calculate the trend when at least two years are available.
+    if len(yearly_data) >= 2:
+        trend_result = calculate_linear_trend(
+            [item["year"] for item in yearly_data],
+            [item["heatwave_count"] for item in yearly_data],
+        )
+
+        yearly_trend = {
+            "direction": trend_result["direction"],
+            "slope_heatwaves_per_year": (
+                trend_result["slope_per_year"]
+            ),
+        }
+
+    else:
+        yearly_trend = {
+            "direction": "insufficient_data",
+            "slope_heatwaves_per_year": None,
+        }
 
     return {
         "source": "Open-Meteo Historical Weather API",
@@ -283,6 +346,15 @@ async def analyze_heatwaves(
             "total_heatwave_days": total_heatwave_days,
             "average_duration_days": average_duration,
             "longest_heatwave_days": longest_duration,
+        },
+        "yearly_trend": {
+            "yearly_counts": yearly_data,
+            "trend": yearly_trend,
+            "note": (
+                "Each heatwave is counted in the year it starts. "
+                "The first and last years may be partial years "
+                "if the selected dates do not cover full calendar years."
+            ),
         },
         "events": events,
     }
