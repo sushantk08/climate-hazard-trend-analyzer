@@ -1,9 +1,11 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from app.heatwave import calculate_percentile, detect_heatwaves
+from app.weather_cache import get_weather_records_collection
 
 
 app = FastAPI(
@@ -13,14 +15,46 @@ app = FastAPI(
 )
 
 
+
 async def fetch_daily_temperatures(
     latitude: float,
     longitude: float,
     start_date: date,
     end_date: date,
 ) -> tuple[dict, list[dict]]:
-    # Fetch daily maximum temperatures from Open-Meteo.
+    """Fetch daily temperatures, using MongoDB as a cache."""
 
+    cache_key = (
+        f"{latitude:.6f}:{longitude:.6f}:"
+        f"{start_date.isoformat()}:{end_date.isoformat()}"
+    )
+
+    # First, check MongoDB for previously saved data.
+    try:
+        collection = await run_in_threadpool(
+            get_weather_records_collection
+        )
+
+        cached_record = await run_in_threadpool(
+            collection.find_one,
+            {"cache_key": cache_key},
+        )
+
+    except Exception as exc:
+        print(
+            f"Weather database access failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Could not access the weather database.",
+        )
+
+    # If the data already exists, return it without calling Open-Meteo.
+    if cached_record:
+        return cached_record["location"], cached_record["records"]
+
+    # Otherwise, fetch the data from Open-Meteo.
     url = "https://archive-api.open-meteo.com/v1/archive"
 
     params = {
@@ -81,7 +115,35 @@ async def fetch_daily_temperatures(
         "timezone": weather_data.get("timezone"),
     }
 
+    # Save the newly fetched data in MongoDB.
+    cache_document = {
+        "cache_key": cache_key,
+        "source": "Open-Meteo Historical Weather API",
+        "latitude": latitude,
+        "longitude": longitude,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "location": location,
+        "records": records,
+        "cached_at": datetime.now(timezone.utc),
+    }
+
+    try:
+        await run_in_threadpool(
+            collection.update_one,
+            {"cache_key": cache_key},
+            {"$set": cache_document},
+            upsert=True,
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not save weather data to the database.",
+        )
+
     return location, records
+
 
 
 @app.get("/")
