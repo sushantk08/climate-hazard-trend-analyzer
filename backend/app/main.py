@@ -8,12 +8,23 @@ from starlette.concurrency import run_in_threadpool
 from app.heatwave import calculate_percentile, detect_heatwaves
 from app.trends import calculate_linear_trend
 from app.weather_cache import get_weather_records_collection
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="Climate Hazard Trend Analyzer API",
     description="API for exploring historical weather and heatwave trends.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET"],
+    allow_headers=["*"],
 )
 
 
