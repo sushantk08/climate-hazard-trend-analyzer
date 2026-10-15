@@ -20,6 +20,22 @@ function describeTrend(direction, slope, unit) {
     return `${displayValue(direction)} (${formatNumber(slope)} ${unit})`;
 }
 
+function describeMannKendall(result) {
+    if (!result || result.p_value == null) {
+        return "Insufficient data";
+    }
+
+    const direction = displayValue(result.direction);
+    const pValue = formatNumber(result.p_value, 4);
+    const alpha = formatNumber(result.alpha ?? 0.05, 2);
+
+    const conclusion = result.significant
+        ? "Statistically significant"
+        : "Not statistically significant";
+
+    return `${direction}; p = ${pValue}; ${conclusion} (alpha = ${alpha})`;
+}
+
 export default function exportAnalysisToPdf({
     form,
     analysis,
@@ -52,11 +68,7 @@ export default function exportAnalysisToPdf({
     y += 8;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    doc.text(
-        `Generated: ${new Date().toLocaleString()}`,
-        margin,
-        y,
-    );
+    doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
 
     // Location and analysis configuration
     y += 7;
@@ -69,26 +81,14 @@ export default function exportAnalysisToPdf({
         head: [["Field", "Value"]],
         body: [
             ["Location", displayValue(form.location)],
-            [
-                "Analysis period",
-                `${form.startDate} to ${form.endDate}`,
-            ],
+            ["Analysis period", `${form.startDate} to ${form.endDate}`],
             [
                 "Baseline period",
                 `${form.baselineStartDate} to ${form.baselineEndDate}`,
             ],
-            [
-                "Latitude",
-                displayValue(form.latitude),
-            ],
-            [
-                "Longitude",
-                displayValue(form.longitude),
-            ],
-            [
-                "Data source",
-                displayValue(analysis.source, "Open-Meteo"),
-            ],
+            ["Latitude", displayValue(form.latitude)],
+            ["Longitude", displayValue(form.longitude)],
+            ["Data source", displayValue(analysis.source, "Open-Meteo")],
         ],
         theme: "grid",
         margin: { left: margin, right: margin },
@@ -171,6 +171,15 @@ export default function exportAnalysisToPdf({
                 "days/year",
             ),
         ],
+
+        [
+            "Mann-Kendall: event frequency",
+            describeMannKendall(frequencyTrend.mann_kendall),
+        ],
+        [
+            "Mann-Kendall: heatwave days",
+            describeMannKendall(durationTrend.mann_kendall),
+        ],
     ];
 
     if (temperatureStats) {
@@ -212,9 +221,7 @@ export default function exportAnalysisToPdf({
     doc.setFontSize(12);
     doc.text("Yearly Heatwave Trends", margin, y);
 
-    const yearlyRows = (
-        yearlyTrend.yearly_counts || []
-    ).map((item) => [
+    const yearlyRows = (yearlyTrend.yearly_counts || []).map((item) => [
         displayValue(item.year),
         displayValue(item.heatwave_count, "0"),
         displayValue(item.heatwave_days, "0"),
@@ -223,9 +230,10 @@ export default function exportAnalysisToPdf({
     autoTable(doc, {
         startY: y + 3,
         head: [["Year", "Events", "Heatwave days"]],
-        body: yearlyRows.length > 0
-            ? yearlyRows
-            : [["No yearly data available", "-", "-"]],
+        body:
+            yearlyRows.length > 0
+                ? yearlyRows
+                : [["No yearly data available", "-", "-"]],
         theme: "striped",
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 2.5 },
@@ -243,30 +251,31 @@ export default function exportAnalysisToPdf({
     doc.setFontSize(12);
     doc.text("Detected Heatwave Events", margin, y);
 
-    const eventRows = (analysis.events || []).map(
-        (event, index) => [
-            String(index + 1),
-            displayValue(event.start_date),
-            displayValue(event.end_date),
-            displayValue(event.duration_days),
-            event.peak_temperature_c == null
-                ? "N/A"
-                : `${formatNumber(event.peak_temperature_c)} °C`,
-        ],
-    );
+    const eventRows = (analysis.events || []).map((event, index) => [
+        String(index + 1),
+        displayValue(event.start_date),
+        displayValue(event.end_date),
+        displayValue(event.duration_days),
+        event.peak_temperature_c == null
+            ? "N/A"
+            : `${formatNumber(event.peak_temperature_c)} °C`,
+    ]);
 
     autoTable(doc, {
         startY: y + 3,
-        head: [[
-            "No.",
-            "Start date",
-            "End date",
-            "Duration (days)",
-            "Peak temperature",
-        ]],
-        body: eventRows.length > 0
-            ? eventRows
-            : [["-", "No events found", "-", "-", "-"]],
+        head: [
+            [
+                "No.",
+                "Start date",
+                "End date",
+                "Duration (days)",
+                "Peak temperature",
+            ],
+        ],
+        body:
+            eventRows.length > 0
+                ? eventRows
+                : [["-", "No events found", "-", "-", "-"]],
         theme: "striped",
         margin: { left: margin, right: margin },
         styles: { fontSize: 8, cellPadding: 2 },
