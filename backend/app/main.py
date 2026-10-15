@@ -2,7 +2,7 @@
 from datetime import date, datetime, timezone
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.heatwave import calculate_percentile, detect_heatwaves
@@ -10,10 +10,22 @@ from app.trends import calculate_linear_trend
 from app.weather_cache import get_weather_records_collection
 from fastapi.middleware.cors import CORSMiddleware
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
 app = FastAPI(
     title="Climate Hazard Trend Analyzer API",
     description="API for exploring historical weather and heatwave trends.",
     version="0.1.0",
+)
+
+limiter = Limiter(key_func=get_remote_address)
+
+app.state.limiter = limiter
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
 )
 
 app.add_middleware(
@@ -65,6 +77,8 @@ async def fetch_daily_temperatures(
     # Reuse cached data when the same request already exists.
     if cached_record:
         return cached_record["location"], cached_record["records"]
+
+    
 
     # Fetch weather data from Open-Meteo when the cache is empty.
     url = "https://archive-api.open-meteo.com/v1/archive"
@@ -181,6 +195,7 @@ def health_check():
 
 
 @app.get("/locations/search")
+@limiter.limit("20/minute")
 async def search_locations(
     name: str = Query(min_length=2, max_length=100),
     count: int = Query(default=5, ge=1, le=10),
@@ -255,6 +270,7 @@ async def search_locations(
 
 
 @app.get("/weather/history")
+@limiter.limit("30/minute")
 async def get_historical_weather(
     latitude: float = Query(default=18.5204, ge=-90, le=90),
     longitude: float = Query(default=73.8567, ge=-180, le=180),
@@ -287,6 +303,7 @@ async def get_historical_weather(
 
 
 @app.get("/analysis/heatwaves")
+@limiter.limit("10/minute")
 async def analyze_heatwaves(
     latitude: float = Query(default=18.5204, ge=-90, le=90),
     longitude: float = Query(default=73.8567, ge=-180, le=180),
