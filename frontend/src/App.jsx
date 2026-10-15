@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import "./App.css";
+import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
 
 function App() {
   const [form, setForm] = useState({
@@ -90,11 +91,9 @@ function App() {
     }
   }
 
-  const trendDirection =
-    analysis?.yearly_trend?.trend?.direction;
-
-  const trendSlope =
-    analysis?.yearly_trend?.trend?.slope_heatwaves_per_year;
+  const trend = analysis?.yearly_trend?.trend;
+  const trendDirection = trend?.direction;
+  const trendSlope = trend?.slope_heatwaves_per_year;
 
   return (
     <div className="app-shell">
@@ -372,14 +371,13 @@ function App() {
               </div>
 
               <div className="metric-value metric-text">
-                {analysis && trendDirection
+                {trendDirection
                   ? trendDirection.replaceAll("_", " ")
                   : "—"}
               </div>
 
               <p>
-                {analysis && trendSlope !== null &&
-                trendSlope !== undefined
+                {trendSlope !== null && trendSlope !== undefined
                   ? `${trendSlope} heatwaves per year`
                   : "Change in annual event frequency"}
               </p>
@@ -399,54 +397,20 @@ function App() {
             </div>
 
             {analysis ? (
-              <div className="yearly-results">
-                {analysis.yearly_trend.yearly_counts.map((item) => (
-                  <div className="year-row" key={item.year}>
-                    <span className="year-label">{item.year}</span>
-
-                    <div
-                      className="year-bar-track"
-                      aria-label={`${item.heatwave_count} heatwaves in ${item.year}`}
-                    >
-                      <div
-                        className="year-bar"
-                        style={{
-                          width: `${
-                            Math.max(
-                              ...analysis.yearly_trend.yearly_counts.map(
-                                (entry) => entry.heatwave_count
-                              ),
-                              1
-                            ) === 0
-                              ? 0
-                              : (item.heatwave_count /
-                                  Math.max(
-                                    ...analysis.yearly_trend.yearly_counts.map(
-                                      (entry) => entry.heatwave_count
-                                    ),
-                                    1
-                                  )) *
-                                100
-                          }%`,
-                        }}
-                      />
-                    </div>
-
-                    <strong className="year-count">
-                      {item.heatwave_count}
-                    </strong>
-                  </div>
-                ))}
+              <>
+                <HeatwaveTrendChart
+                  yearlyCounts={analysis.yearly_trend.yearly_counts}
+                />
 
                 <p className="chart-footnote">
                   {analysis.yearly_trend.note}
                 </p>
-              </div>
+              </>
             ) : (
               <div className="empty-chart">
                 <div className="empty-chart-icon">⌁</div>
 
-                <h3>Trend chart coming next</h3>
+                <h3>Your heatwave chart will appear here</h3>
 
                 <p>
                   Run an analysis to display yearly heatwave counts
@@ -489,9 +453,7 @@ function App() {
             {analysis && (
               <div className="method-rule">
                 <span>Calculated threshold</span>
-                <strong>
-                  {analysis.baseline.threshold_c} °C
-                </strong>
+                <strong>{analysis.baseline.threshold_c} °C</strong>
               </div>
             )}
           </article>
