@@ -1,8 +1,10 @@
 
 import { useState } from "react";
 import "./App.css";
+
 import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
 import HeatwaveEvents from "./components/HeatwaveEvents";
+import TemperatureHistoryChart from "./components/TemperatureHistoryChart";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -22,23 +24,38 @@ function App() {
   const [locationSearchError, setLocationSearchError] = useState("");
 
   const [analysis, setAnalysis] = useState(null);
+  const [temperatureHistory, setTemperatureHistory] = useState(null);
+  const [temperatureHistoryError, setTemperatureHistoryError] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleLocationSearch() {
+  function handleChange(event) {
+    const { name, value } = event.target;
+
+    setForm((previousForm) => ({
+      ...previousForm,
+      [name]: value,
+    }));
+
+    setError("");
+    setTemperatureHistoryError("");
+  }
+
+  async function handleLocationSearch(event) {
+    event.preventDefault();
+
     const query = locationQuery.trim();
 
-    setLocationSearchError("");
-    setLocationResults([]);
-
-    if (query.length < 2) {
-      setLocationSearchError(
-        "Enter at least two characters to search for a city."
-      );
+    if (!query) {
+      setLocationSearchError("Please enter a city name.");
+      setLocationResults([]);
       return;
     }
 
     setSearchingLocations(true);
+    setLocationSearchError("");
+    setLocationResults([]);
 
     try {
       const params = new URLSearchParams({
@@ -50,28 +67,20 @@ function App() {
         `${API_BASE_URL}/locations/search?${params.toString()}`
       );
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(
-          data.detail || "Could not search for locations."
-        );
+        throw new Error("Unable to search for locations.");
       }
 
-      const locations = data.locations || [];
+      const data = await response.json();
 
-      if (locations.length === 0) {
-        setLocationSearchError(
-          "No matching locations found. Try another city name."
-        );
-      } else {
-        setLocationResults(locations);
+      setLocationResults(data.locations || []);
+
+      if (!data.locations || data.locations.length === 0) {
+        setLocationSearchError("No matching locations were found.");
       }
     } catch (err) {
       setLocationSearchError(
-        err instanceof Error
-          ? err.message
-          : "Could not connect to the location search API."
+        err.message || "Unable to search for locations. Please try again."
       );
     } finally {
       setSearchingLocations(false);
@@ -87,265 +96,234 @@ function App() {
       .filter(Boolean)
       .join(", ");
 
-    setForm((currentForm) => ({
-      ...currentForm,
+    setForm((previousForm) => ({
+      ...previousForm,
       location: locationName,
       latitude: String(location.latitude),
       longitude: String(location.longitude),
     }));
 
-    setLocationQuery(location.name);
     setLocationResults([]);
     setLocationSearchError("");
     setAnalysis(null);
+    setTemperatureHistory(null);
+    setTemperatureHistoryError("");
     setError("");
-  }
-
-  function handleChange(event) {
-    const { name, value } = event.target;
-
-    setForm((currentForm) => ({
-      ...currentForm,
-      [name]: value,
-    }));
-
-    setError("");
-    setAnalysis(null);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
     setError("");
-    setAnalysis(null);
-
-    if (form.startDate > form.endDate) {
-      setError("Start date must be before or equal to end date.");
-      return;
-    }
+    setTemperatureHistoryError("");
 
     const latitude = Number(form.latitude);
     const longitude = Number(form.longitude);
 
     if (
+      form.latitude.trim() === "" ||
+      form.longitude.trim() === "" ||
       !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
       latitude < -90 ||
       latitude > 90 ||
-      !Number.isFinite(longitude) ||
       longitude < -180 ||
       longitude > 180
     ) {
-      setError("Please enter valid latitude and longitude values.");
+      setError(
+        "Please enter a valid latitude between -90 and 90 and longitude between -180 and 180."
+      );
       return;
     }
 
-    const params = new URLSearchParams({
-      latitude: String(latitude),
-      longitude: String(longitude),
-      start_date: form.startDate,
-      end_date: form.endDate,
-      baseline_start_date: "1991-01-01",
-      baseline_end_date: "2020-12-31",
-    });
+    if (!form.startDate || !form.endDate) {
+      setError("Please select both a start date and an end date.");
+      return;
+    }
+
+    if (form.startDate > form.endDate) {
+      setError("The start date must be before or equal to the end date.");
+      return;
+    }
 
     setLoading(true);
+    setAnalysis(null);
+    setTemperatureHistory(null);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/analysis/heatwaves?${params.toString()}`
+      // Request the heatwave analysis.
+      const analysisParams = new URLSearchParams({
+        latitude: String(latitude),
+        longitude: String(longitude),
+        start_date: form.startDate,
+        end_date: form.endDate,
+        baseline_start_date: "1991-01-01",
+        baseline_end_date: "2020-12-31",
+      });
+
+      const analysisResponse = await fetch(
+        `${API_BASE_URL}/analysis/heatwaves?${analysisParams.toString()}`
       );
 
-      const data = await response.json();
+      if (!analysisResponse.ok) {
+        const responseData = await analysisResponse.json().catch(() => null);
 
-      if (!response.ok) {
         throw new Error(
-          data.detail || "Could not complete the heatwave analysis."
+          responseData?.detail || "Unable to complete heatwave analysis."
         );
       }
 
-      setAnalysis(data);
+      const analysisData = await analysisResponse.json();
+      setAnalysis(analysisData);
+
+      // Request daily maximum temperatures for the same location and dates.
+      try {
+        const historyParams = new URLSearchParams({
+          latitude: String(latitude),
+          longitude: String(longitude),
+          start_date: form.startDate,
+          end_date: form.endDate,
+        });
+
+        const historyResponse = await fetch(
+          `${API_BASE_URL}/weather/history?${historyParams.toString()}`
+        );
+
+        if (!historyResponse.ok) {
+          throw new Error("Unable to load temperature history.");
+        }
+
+        const historyData = await historyResponse.json();
+        setTemperatureHistory(historyData.daily || []);
+      } catch (historyError) {
+        setTemperatureHistoryError(
+          historyError.message ||
+            "Unable to load temperature history. Please try again."
+        );
+      }
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Could not connect to the backend. Check that it is running."
+        err.message ||
+          "Something went wrong while running the analysis."
       );
     } finally {
       setLoading(false);
     }
   }
 
+  const summary = analysis?.summary;
   const trend = analysis?.yearly_trend?.trend;
-  const trendDirection = trend?.direction;
-  const trendSlope = trend?.slope_heatwaves_per_year;
+  const baseline = analysis?.baseline;
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#overview">
-          <div className="brand-mark">C</div>
-
-          <div className="brand-name">
-            <strong>CLIMATE</strong>
-            <span>INSIGHTS LAB</span>
-          </div>
-        </a>
-
-        <div className="nav-heading">WORKSPACE</div>
-
-        <nav className="sidebar-nav">
-          <a className="nav-link active" href="#overview">
-            <span className="nav-icon">◈</span>
-            Overview
-          </a>
-
-          <a className="nav-link" href="#analysis">
-            <span className="nav-icon">⌁</span>
-            Hazard analysis
-          </a>
-
-          <a className="nav-link" href="#trends">
-            <span className="nav-icon">↗</span>
-            Climate trends
-          </a>
-
-          <a className="nav-link" href="#methodology">
-            <span className="nav-icon">ⓘ</span>
-            Methodology
-          </a>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="status-dot" />
-
+        <div className="sidebar-brand">
+          <div className="brand-icon">C</div>
           <div>
-            <strong>Historical explorer</strong>
-            <span>Weather insights workspace</span>
+            <h2>ClimateScope</h2>
+            <p>Hazard Trend Analyzer</p>
           </div>
+        </div>
+
+        <div className="sidebar-section">
+          <p className="sidebar-label">WORKSPACE</p>
+          <div className="sidebar-link active">
+            <span>◈</span>
+            Climate Dashboard
+          </div>
+        </div>
+
+        <div className="sidebar-footer">
+          <p>Climate data analysis</p>
+          <span>Powered by historical weather data</span>
         </div>
       </aside>
 
-      <main className="main-content" id="overview">
-        <header className="topbar">
-          <div className="breadcrumb">
-            Workspace <span>/</span> Climate analysis
+      <main className="main-content">
+        <header className="dashboard-header">
+          <div>
+            <p className="eyebrow">CLIMATE INTELLIGENCE</p>
+            <h1>Climate Hazard Dashboard</h1>
+            <p className="header-description">
+              Explore heatwave patterns and historical temperatures for
+              your selected location.
+            </p>
           </div>
 
-          <div className="topbar-tag">
-            <span className="status-dot" />
-            Historical analysis
+          <div className="status-indicator">
+            <span className="status-dot"></span>
+            Analysis workspace
           </div>
         </header>
 
-        <section className="page-heading">
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            CLIMATE HAZARD MONITORING
-          </div>
-
-          <h1>
-            Climate Hazard
-            <br />
-            <span>Trend Analyzer</span>
-          </h1>
-
-          <p>
-            Explore historical weather patterns, identify heatwaves,
-            and understand how climate hazards change over time.
-          </p>
-        </section>
-
-        <section className="analysis-card" id="analysis">
+        <section className="configuration-card">
           <div className="section-heading">
-            <div className="section-icon">⌖</div>
-
             <div>
-              <h2>Configure your analysis</h2>
-              <p>
-                Select a region and historical period to investigate.
-              </p>
+              <h2>Analysis Configuration</h2>
+              <p>Choose a location and the period you want to analyze.</p>
             </div>
-
-            <span className="step-label">01 / CONFIGURE</span>
           </div>
 
           <form onSubmit={handleSubmit}>
-            <div className="form-grid">
-              <div className="field full-width">
-                <label htmlFor="locationQuery">Search for a city</label>
+            <div className="form-group">
+              <label htmlFor="locationQuery">Search for a city</label>
 
-                <div className="location-search-row">
-                  <input
-                    id="locationQuery"
-                    type="text"
-                    value={locationQuery}
-                    onChange={(event) => {
-                      setLocationQuery(event.target.value);
-                      setLocationResults([]);
-                      setLocationSearchError("");
-                    }}
-                    placeholder="For example, Mumbai or Nagpur"
-                    minLength={2}
-                    maxLength={100}
-                    autoComplete="off"
-                  />
+              <div className="location-search-row">
+                <input
+                  id="locationQuery"
+                  type="text"
+                  value={locationQuery}
+                  onChange={(event) =>
+                    setLocationQuery(event.target.value)
+                  }
+                  placeholder="Enter a city, such as Pune"
+                />
 
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={handleLocationSearch}
-                    disabled={searchingLocations}
-                  >
-                    {searchingLocations ? "Searching..." : "Search"}
-                  </button>
-                </div>
-
-                <small>
-                  Search for a city and select the correct location.
-                </small>
-
-                {locationSearchError && (
-                  <p className="location-search-error" role="alert">
-                    {locationSearchError}
-                  </p>
-                )}
-
-                {locationResults.length > 0 && (
-                  <div
-                    className="location-results"
-                    role="list"
-                    aria-label="Matching locations"
-                  >
-                    {locationResults.map((location) => (
-                      <button
-                        type="button"
-                        className="location-result"
-                        key={`${location.name}-${location.latitude}-${location.longitude}`}
-                        onClick={() => handleLocationSelect(location)}
-                      >
-                        <span className="location-result-details">
-                          <strong>{location.name}</strong>
-
-                          <span>
-                            {[location.region, location.country]
-                              .filter(Boolean)
-                              .join(", ")}
-                          </span>
-                        </span>
-
-                        <span className="location-coordinates">
-                          {Number(location.latitude).toFixed(3)},{" "}
-                          {Number(location.longitude).toFixed(3)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleLocationSearch}
+                  disabled={searchingLocations}
+                >
+                  {searchingLocations ? "Searching..." : "Search"}
+                </button>
               </div>
 
-              <div className="field full-width">
-                <label htmlFor="location">Selected region</label>
+              {locationSearchError && (
+                <p className="location-search-error" role="alert">
+                  {locationSearchError}
+                </p>
+              )}
 
+              {locationResults.length > 0 && (
+                <div className="location-results">
+                  {locationResults.map((location, index) => (
+                    <button
+                      key={`${location.latitude}-${location.longitude}-${index}`}
+                      type="button"
+                      className="location-result"
+                      onClick={() => handleLocationSelect(location)}
+                    >
+                      <span className="location-result-details">
+                        <strong>
+                          {[location.name, location.region, location.country]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </strong>
+                        <span className="location-coordinates">
+                          {location.latitude}, {location.longitude}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label htmlFor="location">Selected location</label>
                 <input
                   id="location"
                   name="location"
@@ -355,15 +333,12 @@ function App() {
                 />
               </div>
 
-              <div className="field">
+              <div className="form-group">
                 <label htmlFor="latitude">Latitude</label>
-
                 <input
                   id="latitude"
                   name="latitude"
                   type="number"
-                  min="-90"
-                  max="90"
                   step="any"
                   value={form.latitude}
                   onChange={handleChange}
@@ -371,15 +346,12 @@ function App() {
                 />
               </div>
 
-              <div className="field">
+              <div className="form-group">
                 <label htmlFor="longitude">Longitude</label>
-
                 <input
                   id="longitude"
                   name="longitude"
                   type="number"
-                  min="-180"
-                  max="180"
                   step="any"
                   value={form.longitude}
                   onChange={handleChange}
@@ -387,9 +359,20 @@ function App() {
                 />
               </div>
 
-              <div className="field">
-                <label htmlFor="startDate">Start date</label>
+              <div className="form-group">
+                <label htmlFor="hazard">Climate hazard</label>
+                <select
+                  id="hazard"
+                  name="hazard"
+                  value={form.hazard}
+                  onChange={handleChange}
+                >
+                  <option value="heatwave">Heatwave</option>
+                </select>
+              </div>
 
+              <div className="form-group">
+                <label htmlFor="startDate">Start date</label>
                 <input
                   id="startDate"
                   name="startDate"
@@ -400,9 +383,8 @@ function App() {
                 />
               </div>
 
-              <div className="field">
+              <div className="form-group">
                 <label htmlFor="endDate">End date</label>
-
                 <input
                   id="endDate"
                   name="endDate"
@@ -412,205 +394,182 @@ function App() {
                   required
                 />
               </div>
-
-              <div className="field full-width">
-                <label htmlFor="hazard">Hazard type</label>
-
-                <select
-                  id="hazard"
-                  name="hazard"
-                  value={form.hazard}
-                  onChange={handleChange}
-                >
-                  <option value="heatwave">Heatwave</option>
-                </select>
-
-                <small>
-                  Heatwave analysis is the first supported hazard.
-                </small>
-              </div>
             </div>
 
-            <div className="form-footer">
-              <p>
-                <span className="info-mark">i</span>
-                Historical baseline: 1991–2020
+            {error && (
+              <p className="error-message" role="alert">
+                {error}
               </p>
+            )}
 
+            <div className="form-actions">
               <button
                 type="submit"
                 className="primary-button"
                 disabled={loading}
               >
-                {loading ? "Analyzing..." : "Analyze heatwaves"}
-                <span>→</span>
+                {loading ? "Analyzing..." : "Run Heatwave Analysis"}
               </button>
             </div>
-
-            {loading && (
-              <p className="form-message" role="status">
-                Fetching weather data and calculating heatwave trends.
-                This may take a little time for the first request.
-              </p>
-            )}
-
-            {error && (
-              <p className="form-message error-message" role="alert">
-                {error}
-              </p>
-            )}
-
-            {analysis && (
-              <p className="form-message" role="status">
-                Analysis completed. The baseline temperature threshold
-                is {analysis.baseline.threshold_c} °C.
-              </p>
-            )}
           </form>
         </section>
 
-        <section className="metrics-section" id="trends">
-          <div className="section-heading compact-heading">
-            <div>
-              <h2>Analysis overview</h2>
-              <p>Your climate indicators and results.</p>
-            </div>
-
-            <span className="placeholder-tag">
-              {analysis ? "ANALYSIS COMPLETE" : "AWAITING DATA"}
-            </span>
+        {loading && (
+          <div className="loading-message">
+            <p>Analyzing climate data. Please wait...</p>
           </div>
+        )}
 
-          <div className="metrics-grid">
-            <article className="metric-card">
-              <div className="metric-top">
-                <span className="metric-icon orange">⌁</span>
-                <span className="metric-label">HEATWAVE EVENTS</span>
-              </div>
-
-              <div className="metric-value">
-                {analysis ? analysis.summary.heatwave_count : "—"}
-              </div>
-
-              <p>Total events detected</p>
-            </article>
-
-            <article className="metric-card">
-              <div className="metric-top">
-                <span className="metric-icon green">◷</span>
-                <span className="metric-label">HEATWAVE DAYS</span>
-              </div>
-
-              <div className="metric-value">
-                {analysis ? analysis.summary.total_heatwave_days : "—"}
-              </div>
-
-              <p>Total days in detected events</p>
-            </article>
-
-            <article className="metric-card">
-              <div className="metric-top">
-                <span className="metric-icon blue">↗</span>
-                <span className="metric-label">YEARLY TREND</span>
-              </div>
-
-              <div className="metric-value metric-text">
-                {trendDirection
-                  ? trendDirection.replaceAll("_", " ")
-                  : "—"}
-              </div>
-
-              <p>
-                {trendSlope !== null && trendSlope !== undefined
-                  ? `${trendSlope} heatwaves per year`
-                  : "Change in annual event frequency"}
-              </p>
-            </article>
-          </div>
-        </section>
-
-        <section className="visualization-grid">
-          <article className="panel chart-panel">
-            <div className="panel-heading">
+        {analysis && (
+          <>
+            <section className="results-heading">
               <div>
-                <h2>Heatwave frequency</h2>
-                <p>Year-by-year historical comparison</p>
-              </div>
-
-              <span className="chart-symbol">▥</span>
-            </div>
-
-            {analysis ? (
-              <>
-                <HeatwaveTrendChart
-                  yearlyCounts={analysis.yearly_trend.yearly_counts}
-                />
-
-                <p className="chart-footnote">
-                  {analysis.yearly_trend.note}
-                </p>
-              </>
-            ) : (
-              <div className="empty-chart">
-                <div className="empty-chart-icon">⌁</div>
-
-                <h3>Your heatwave chart will appear here</h3>
-
+                <p className="eyebrow">ANALYSIS RESULTS</p>
+                <h2>{form.location}</h2>
                 <p>
-                  Run an analysis to display yearly heatwave counts
-                  and compare historical trends.
+                  {form.startDate} to {form.endDate}
                 </p>
               </div>
-            )}
-          </article>
+              <span className="result-badge">Analysis complete</span>
+            </section>
 
-          <article
-            className="panel methodology-panel"
-            id="methodology"
-          >
-            <div className="panel-heading">
-              <div>
-                <h2>Detection method</h2>
-                <p>How a heatwave is identified</p>
+            <section className="metrics-grid">
+              <article className="metric-card">
+                <p>Total Heatwave Events</p>
+                <h3>{summary?.heatwave_count ?? 0}</h3>
+                <span>Events detected in the selected period</span>
+              </article>
+
+              <article className="metric-card">
+                <p>Total Heatwave Days</p>
+                <h3>{summary?.total_heatwave_days ?? 0}</h3>
+                <span>Days classified as part of heatwaves</span>
+              </article>
+
+              <article className="metric-card">
+                <p>Yearly Trend</p>
+                <h3>
+                  {trend?.direction
+                    ? trend.direction.charAt(0).toUpperCase() +
+                      trend.direction.slice(1)
+                    : "Unavailable"}
+                </h3>
+                <span>
+                  {trend?.slope_heatwaves_per_year != null
+                    ? `${Number(
+                        trend.slope_heatwaves_per_year
+                      ).toFixed(2)} events per year`
+                    : "Trend information unavailable"}
+                </span>
+              </article>
+            </section>
+
+            <section className="chart-card">
+              <div className="section-heading">
+                <div>
+                  <h2>Yearly Heatwave Trend</h2>
+                  <p>
+                    Number of detected heatwave events in each year.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="method-number">95th</div>
+              <HeatwaveTrendChart
+                yearlyCounts={
+                  analysis.yearly_trend?.yearly_counts || []
+                }
+              />
+            </section>
 
-            <div className="method-title">Percentile threshold</div>
+            <section className="chart-card">
+              <div className="section-heading">
+                <div>
+                  <h2>Daily Temperature History</h2>
+                  <p>
+                    Daily maximum temperatures for the selected location
+                    and date range.
+                  </p>
+                </div>
+              </div>
 
-            <p className="method-description">
-              A heatwave is identified when daily maximum temperature
-              stays above the historical threshold for at least
-              three consecutive calendar days.
+              {temperatureHistoryError ? (
+                <p className="error-message" role="alert">
+                  {temperatureHistoryError}
+                </p>
+              ) : temperatureHistory ? (
+                <>
+                  <TemperatureHistoryChart daily={temperatureHistory} />
+                  <p className="chart-footnote">
+                    Source: Open-Meteo Historical Weather API. Temperature
+                    values are shown in degrees Celsius.
+                  </p>
+                </>
+              ) : (
+                <p>Loading temperature history...</p>
+              )}
+            </section>
+
+            <section className="details-grid">
+              <article className="detail-card">
+                <h2>Detection Method</h2>
+                <p>
+                  Heatwaves are detected by comparing daily maximum
+                  temperatures against a threshold calculated from
+                  historical baseline data.
+                </p>
+                <p>
+                  Consecutive qualifying hot days are grouped into
+                  heatwave events.
+                </p>
+              </article>
+
+              <article className="detail-card">
+                <h2>Historical Baseline</h2>
+                <p>
+                  The configured baseline period is January 1, 1991,
+                  to December 31, 2020.
+                </p>
+                {baseline?.threshold_c != null && (
+                  <div className="threshold-value">
+                    <span>Temperature threshold</span>
+                    <strong>
+                      {Number(baseline.threshold_c).toFixed(1)} °C
+                    </strong>
+                  </div>
+                )}
+              </article>
+            </section>
+
+            <section className="chart-card events-section">
+              <div className="section-heading">
+                <div>
+                  <h2>Detected Heatwave Events</h2>
+                  <p>
+                    Details of the heatwave events identified during
+                    this analysis.
+                  </p>
+                </div>
+              </div>
+
+              <HeatwaveEvents events={analysis.events || []} />
+            </section>
+          </>
+        )}
+
+        {!analysis && !loading && !error && (
+          <section className="empty-state">
+            <div className="empty-state-icon">↗</div>
+            <h2>Your climate analysis starts here</h2>
+            <p>
+              Choose a location and date range, then run the analysis
+              to explore yearly heatwave trends and daily temperatures.
             </p>
+          </section>
+        )}
 
-            <div className="method-rule">
-              <span>Minimum duration</span>
-              <strong>3 consecutive days</strong>
-            </div>
-
-            <div className="method-rule">
-              <span>Reference period</span>
-              <strong>1991–2020</strong>
-            </div>
-
-            {analysis && (
-              <div className="method-rule">
-                <span>Calculated threshold</span>
-                <strong>{analysis.baseline.threshold_c} °C</strong>
-              </div>
-            )}
-          </article>
-        </section>
-
-        {analysis && <HeatwaveEvents events={analysis.events} />}
-
-        <footer className="page-footer">
-          <span>CLIMATE INSIGHTS LAB</span>
-          <span>
-            Historical weather analysis · Data-driven insights
-          </span>
+        <footer className="dashboard-footer">
+          <p>ClimateScope — Climate Hazard Trend Analyzer</p>
+          <span>Historical data analysis for climate awareness</span>
         </footer>
       </main>
     </div>
