@@ -197,6 +197,7 @@ def health_check():
 @app.get("/locations/search")
 @limiter.limit("20/minute")
 async def search_locations(
+    request: Request,
     name: str = Query(min_length=2, max_length=100),
     count: int = Query(default=5, ge=1, le=10),
 ):
@@ -272,6 +273,7 @@ async def search_locations(
 @app.get("/weather/history")
 @limiter.limit("30/minute")
 async def get_historical_weather(
+    request: Request,
     latitude: float = Query(default=18.5204, ge=-90, le=90),
     longitude: float = Query(default=73.8567, ge=-180, le=180),
     start_date: date = Query(default=date(2024, 1, 1)),
@@ -305,6 +307,7 @@ async def get_historical_weather(
 @app.get("/analysis/heatwaves")
 @limiter.limit("10/minute")
 async def analyze_heatwaves(
+    request: Request,
     latitude: float = Query(default=18.5204, ge=-90, le=90),
     longitude: float = Query(default=73.8567, ge=-180, le=180),
     start_date: date = Query(default=date(2024, 1, 1)),
