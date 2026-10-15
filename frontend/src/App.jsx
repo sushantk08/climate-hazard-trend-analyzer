@@ -2,6 +2,7 @@
 import { useState } from "react";
 import "./App.css";
 import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
+import HeatwaveEvents from "./components/HeatwaveEvents";
 
 function App() {
   const [form, setForm] = useState({
@@ -133,6 +134,7 @@ function App() {
 
         <div className="sidebar-bottom">
           <div className="status-dot" />
+
           <div>
             <strong>Historical explorer</strong>
             <span>Weather insights workspace</span>
@@ -420,7 +422,10 @@ function App() {
             )}
           </article>
 
-          <article className="panel methodology-panel" id="methodology">
+          <article
+            className="panel methodology-panel"
+            id="methodology"
+          >
             <div className="panel-heading">
               <div>
                 <h2>Detection method</h2>
@@ -453,11 +458,17 @@ function App() {
             {analysis && (
               <div className="method-rule">
                 <span>Calculated threshold</span>
-                <strong>{analysis.baseline.threshold_c} °C</strong>
+                <strong>
+                  {analysis.baseline.threshold_c} °C
+                </strong>
               </div>
             )}
           </article>
         </section>
+
+        {analysis && (
+          <HeatwaveEvents events={analysis.events} />
+        )}
 
         <footer className="page-footer">
           <span>CLIMATE INSIGHTS LAB</span>
