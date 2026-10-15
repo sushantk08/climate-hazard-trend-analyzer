@@ -363,7 +363,9 @@ async def analyze_heatwaves(
         default=0,
     )
 
-    # Prepare a count for every calendar year in the analysis period.
+    
+    
+    # Prepare yearly counts and heatwave duration totals.
     first_year = start_date.year
     last_year = end_date.year
 
@@ -372,7 +374,12 @@ async def analyze_heatwaves(
         for year in range(first_year, last_year + 1)
     }
 
-    # Count each heatwave in the year it started.
+    yearly_heatwave_days = {
+        year: 0
+        for year in range(first_year, last_year + 1)
+    }
+
+    # Assign each event to the year in which it started.
     for event in events:
         event_year = date.fromisoformat(
             event["start_date"]
@@ -380,26 +387,42 @@ async def analyze_heatwaves(
 
         if event_year in yearly_counts:
             yearly_counts[event_year] += 1
+            yearly_heatwave_days[event_year] += (
+                event["duration_days"]
+            )
 
     yearly_data = [
         {
             "year": year,
-            "heatwave_count": count,
+            "heatwave_count": yearly_counts[year],
+            "heatwave_days": yearly_heatwave_days[year],
         }
-        for year, count in yearly_counts.items()
+        for year in range(first_year, last_year + 1)
     ]
 
-    # Calculate the trend when at least two years are available.
+    # Calculate frequency and duration trends.
     if len(yearly_data) >= 2:
-        trend_result = calculate_linear_trend(
+        frequency_result = calculate_linear_trend(
             [item["year"] for item in yearly_data],
             [item["heatwave_count"] for item in yearly_data],
         )
 
+        duration_result = calculate_linear_trend(
+            [item["year"] for item in yearly_data],
+            [item["heatwave_days"] for item in yearly_data],
+        )
+
         yearly_trend = {
-            "direction": trend_result["direction"],
+            "direction": frequency_result["direction"],
             "slope_heatwaves_per_year": (
-                trend_result["slope_per_year"]
+                frequency_result["slope_per_year"]
+            ),
+        }
+
+        duration_trend = {
+            "direction": duration_result["direction"],
+            "slope_heatwave_days_per_year": (
+                duration_result["slope_per_year"]
             ),
         }
 
@@ -408,6 +431,12 @@ async def analyze_heatwaves(
             "direction": "insufficient_data",
             "slope_heatwaves_per_year": None,
         }
+
+        duration_trend = {
+            "direction": "insufficient_data",
+            "slope_heatwave_days_per_year": None,
+        }
+
 
     return {
         "source": "Open-Meteo Historical Weather API",
@@ -437,6 +466,7 @@ async def analyze_heatwaves(
         "yearly_trend": {
             "yearly_counts": yearly_data,
             "trend": yearly_trend,
+            "duration_trend": duration_trend,
             "note": (
                 "Each heatwave is counted in the year it starts. "
                 "The first and last years may be partial years "
