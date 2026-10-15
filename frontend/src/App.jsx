@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import "./App.css";
 
@@ -17,6 +16,8 @@ function App() {
     startDate: "2019-01-01",
     endDate: "2024-12-31",
     hazard: "heatwave",
+    baselineStartDate: "1991-01-01",
+    baselineEndDate: "2020-12-31",
   });
 
   const [locationQuery, setLocationQuery] = useState("Pune");
@@ -73,10 +74,11 @@ function App() {
       }
 
       const data = await response.json();
+      const locations = data.locations || [];
 
-      setLocationResults(data.locations || []);
+      setLocationResults(locations);
 
-      if (!data.locations || data.locations.length === 0) {
+      if (locations.length === 0) {
         setLocationSearchError("No matching locations were found.");
       }
     } catch (err) {
@@ -89,11 +91,7 @@ function App() {
   }
 
   function handleLocationSelect(location) {
-    const locationName = [
-      location.name,
-      location.region,
-      location.country,
-    ]
+    const locationName = [location.name, location.region, location.country]
       .filter(Boolean)
       .join(", ");
 
@@ -112,8 +110,19 @@ function App() {
     setError("");
   }
 
+  function getSafeLocationFilename() {
+    return form.location
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
   function handleExportHeatwaveEvents() {
     const events = analysis?.events || [];
+
+    if (events.length === 0) {
+      return;
+    }
 
     const headers = [
       "Event",
@@ -131,13 +140,27 @@ function App() {
       event.peak_temperature_c ?? "",
     ]);
 
-    const safeLocation = form.location
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+    const filename =
+      `heatwave-events-${getSafeLocationFilename() || "location"}-` +
+      `${form.startDate}-to-${form.endDate}.csv`;
+
+    exportToCsv(filename, headers, rows);
+  }
+
+  function handleExportTemperatureHistory() {
+    if (!temperatureHistory || temperatureHistory.length === 0) {
+      return;
+    }
+
+    const headers = ["Date", "Daily Maximum Temperature (°C)"];
+
+    const rows = temperatureHistory.map((day) => [
+      day.date ?? "",
+      day.temperature_max_c ?? "",
+    ]);
 
     const filename =
-      `heatwave-events-${safeLocation || "location"}-` +
+      `temperature-history-${getSafeLocationFilename() || "location"}-` +
       `${form.startDate}-to-${form.endDate}.csv`;
 
     exportToCsv(filename, headers, rows);
@@ -178,6 +201,18 @@ function App() {
       return;
     }
 
+    if (!form.baselineStartDate || !form.baselineEndDate) {
+      setError("Please select both baseline dates.");
+      return;
+    }
+
+    if (form.baselineStartDate > form.baselineEndDate) {
+      setError(
+        "The baseline start date must be before or equal to the baseline end date."
+      );
+      return;
+    }
+
     setLoading(true);
     setAnalysis(null);
     setTemperatureHistory(null);
@@ -188,8 +223,8 @@ function App() {
         longitude: String(longitude),
         start_date: form.startDate,
         end_date: form.endDate,
-        baseline_start_date: "1991-01-01",
-        baseline_end_date: "2020-12-31",
+        baseline_start_date: form.baselineStartDate,
+        baseline_end_date: form.baselineEndDate,
       });
 
       const analysisResponse = await fetch(
@@ -197,10 +232,7 @@ function App() {
       );
 
       if (!analysisResponse.ok) {
-        const responseData = await analysisResponse
-          .json()
-          .catch(() => null);
-
+        const responseData = await analysisResponse.json().catch(() => null);
         throw new Error(
           responseData?.detail || "Unable to complete heatwave analysis."
         );
@@ -209,8 +241,7 @@ function App() {
       const analysisData = await analysisResponse.json();
       setAnalysis(analysisData);
 
-      // Load daily temperatures separately so heatwave results
-      // remain available even if this request fails.
+      // Keep heatwave results available even if the weather-history request fails.
       try {
         const historyParams = new URLSearchParams({
           latitude: String(latitude),
@@ -236,9 +267,7 @@ function App() {
         );
       }
     } catch (err) {
-      setError(
-        err.message || "Something went wrong while running the analysis."
-      );
+      setError(err.message || "Something went wrong while running the analysis.");
     } finally {
       setLoading(false);
     }
@@ -279,8 +308,8 @@ function App() {
             <p className="eyebrow">CLIMATE INTELLIGENCE</p>
             <h1>Climate Hazard Dashboard</h1>
             <p className="header-description">
-              Explore heatwave patterns and historical temperatures for
-              your selected location.
+              Explore heatwave patterns and historical temperatures for your
+              selected location.
             </p>
           </div>
 
@@ -291,41 +320,24 @@ function App() {
         </header>
 
         <section className="configuration-card">
-          
-        <div className="section-heading">
-           <div>
-              <h2>Daily Temperature History</h2>
-              <p>
-                 Daily maximum temperatures for the selected location and date range.
-              </p>
-           </div>
-
-        <button
-            type="button"
-            className="secondary-button"
-            onClick={handleExportTemperatureHistory}
-            disabled={!temperatureHistory || temperatureHistory.length === 0}
-         >
-           Export CSV
-        </button>
-       </div>
-
+          <div className="section-heading">
+            <div>
+              <h2>Analysis Configuration</h2>
+              <p>Choose a location and the period you want to analyze.</p>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label htmlFor="locationQuery">Search for a city</label>
-
               <div className="location-search-row">
                 <input
                   id="locationQuery"
                   type="text"
                   value={locationQuery}
-                  onChange={(event) =>
-                    setLocationQuery(event.target.value)
-                  }
+                  onChange={(event) => setLocationQuery(event.target.value)}
                   placeholder="Enter a city, such as Pune"
                 />
-
                 <button
                   type="button"
                   className="secondary-button"
@@ -353,11 +365,7 @@ function App() {
                     >
                       <span className="location-result-details">
                         <strong>
-                          {[
-                            location.name,
-                            location.region,
-                            location.country,
-                          ]
+                          {[location.name, location.region, location.country]
                             .filter(Boolean)
                             .join(", ")}
                         </strong>
@@ -422,7 +430,7 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label htmlFor="startDate">Start date</label>
+                <label htmlFor="startDate">Analysis start date</label>
                 <input
                   id="startDate"
                   name="startDate"
@@ -434,12 +442,36 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label htmlFor="endDate">End date</label>
+                <label htmlFor="endDate">Analysis end date</label>
                 <input
                   id="endDate"
                   name="endDate"
                   type="date"
                   value={form.endDate}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="baselineStartDate">Baseline start date</label>
+                <input
+                  id="baselineStartDate"
+                  name="baselineStartDate"
+                  type="date"
+                  value={form.baselineStartDate}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="baselineEndDate">Baseline end date</label>
+                <input
+                  id="baselineEndDate"
+                  name="baselineEndDate"
+                  type="date"
+                  value={form.baselineEndDate}
                   onChange={handleChange}
                   required
                 />
@@ -506,9 +538,7 @@ function App() {
                 </h3>
                 <span>
                   {trend?.slope_heatwaves_per_year != null
-                    ? `${Number(
-                        trend.slope_heatwaves_per_year
-                      ).toFixed(2)} events per year`
+                    ? `${Number(trend.slope_heatwaves_per_year).toFixed(2)} events per year`
                     : "Trend information unavailable"}
                 </span>
               </article>
@@ -518,16 +548,11 @@ function App() {
               <div className="section-heading">
                 <div>
                   <h2>Yearly Heatwave Trend</h2>
-                  <p>
-                    Number of detected heatwave events in each year.
-                  </p>
+                  <p>Number of detected heatwave events in each year.</p>
                 </div>
               </div>
-
               <HeatwaveTrendChart
-                yearlyCounts={
-                  analysis.yearly_trend?.yearly_counts || []
-                }
+                yearlyCounts={analysis.yearly_trend?.yearly_counts || []}
               />
             </section>
 
@@ -536,10 +561,18 @@ function App() {
                 <div>
                   <h2>Daily Temperature History</h2>
                   <p>
-                    Daily maximum temperatures for the selected location
-                    and date range.
+                    Daily maximum temperatures for the selected location and
+                    date range.
                   </p>
                 </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleExportTemperatureHistory}
+                  disabled={!temperatureHistory || temperatureHistory.length === 0}
+                >
+                  Export CSV
+                </button>
               </div>
 
               {temperatureHistoryError ? (
@@ -564,28 +597,25 @@ function App() {
                 <h2>Detection Method</h2>
                 <p>
                   Heatwaves are detected by comparing daily maximum
-                  temperatures against a threshold calculated from
-                  historical baseline data.
+                  temperatures against a threshold calculated from historical
+                  baseline data.
                 </p>
                 <p>
-                  Consecutive qualifying hot days are grouped into
-                  heatwave events.
+                  Consecutive qualifying hot days are grouped into heatwave
+                  events.
                 </p>
               </article>
 
               <article className="detail-card">
                 <h2>Historical Baseline</h2>
                 <p>
-                  The configured baseline period is January 1, 1991,
-                  to December 31, 2020.
+                  The selected baseline period is {form.baselineStartDate} to{" "}
+                  {form.baselineEndDate}.
                 </p>
-
                 {baseline?.threshold_c != null && (
                   <div className="threshold-value">
                     <span>Temperature threshold</span>
-                    <strong>
-                      {Number(baseline.threshold_c).toFixed(1)} °C
-                    </strong>
+                    <strong>{Number(baseline.threshold_c).toFixed(1)} °C</strong>
                   </div>
                 )}
               </article>
@@ -596,21 +626,20 @@ function App() {
                 <div>
                   <h2>Detected Heatwave Events</h2>
                   <p>
-                    Details of the heatwave events identified during
-                    this analysis.
+                    Details of the heatwave events identified during this
+                    analysis.
                   </p>
                 </div>
-
                 <button
                   type="button"
                   className="secondary-button"
                   onClick={handleExportHeatwaveEvents}
+                  disabled={!analysis.events || analysis.events.length === 0}
                   title="Download heatwave events as a CSV file"
                 >
                   Export CSV
                 </button>
               </div>
-
               <HeatwaveEvents events={analysis.events || []} />
             </section>
           </>
@@ -621,8 +650,8 @@ function App() {
             <div className="empty-state-icon">↗</div>
             <h2>Your climate analysis starts here</h2>
             <p>
-              Choose a location and date range, then run the analysis
-              to explore yearly heatwave trends and daily temperatures.
+              Choose a location and date range, then run the analysis to explore
+              yearly heatwave trends and daily temperatures.
             </p>
           </section>
         )}
@@ -635,31 +664,5 @@ function App() {
     </div>
   );
 }
-
-
-function handleExportTemperatureHistory() {
-  if (!temperatureHistory || temperatureHistory.length === 0) {
-    return;
-  }
-
-  const headers = ["Date", "Daily Maximum Temperature (°C)"];
-
-  const rows = temperatureHistory.map((day) => [
-    day.date,
-    day.temperature_max_c,
-  ]);
-
-  const safeLocation = form.location
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  const filename =
-    `temperature-history-${safeLocation || "location"}-` +
-    `${form.startDate}-to-${form.endDate}.csv`;
-
-  exportToCsv(filename, headers, rows);
-}
-
 
 export default App;
