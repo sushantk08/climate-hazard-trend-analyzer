@@ -377,6 +377,7 @@ function App() {
     const summary = analysis?.summary;
     const trend = analysis?.yearly_trend?.trend;
     const baseline = analysis?.baseline;
+    const durationTrend = analysis?.yearly_trend?.duration_trend;
 
     const temperatureStats = (() => {
         if (
@@ -778,6 +779,70 @@ function App() {
                                     analysis.yearly_trend?.yearly_counts || []
                                 }
                             />
+                        </section>
+
+                        <section className="details-grid">
+                            <article className="detail-card">
+                                <h2>Mann–Kendall: Event Frequency</h2>
+                                {trend?.mann_kendall?.p_value === null ||
+                                trend?.mann_kendall?.p_value === undefined ? (
+                                    <p>Not enough yearly data to test the trend.</p>
+                                ) : (
+                                    <>
+                                        <p>
+                                            <strong>Direction:</strong>{" "}
+                                            {trend.mann_kendall.direction}
+                                        </p>
+                                        <p>
+                                            <strong>Test statistic (S):</strong>{" "}
+                                            {trend.mann_kendall.s}
+                                        </p>
+                                        <p>
+                                            <strong>p-value:</strong>{" "}
+                                            {Number(
+                                                trend.mann_kendall.p_value,
+                                            ).toFixed(4)}
+                                        </p>
+                                        <p>
+                                            <strong>Conclusion:</strong>{" "}
+                                            {trend.mann_kendall.significant
+                                                ? "Statistically significant trend at the 5% level."
+                                                : "No statistically significant trend detected at the 5% level."}
+                                        </p>
+                                    </>
+                                )}
+                            </article>
+
+                            <article className="detail-card">
+                                <h2>Mann–Kendall: Heatwave Days</h2>
+                                {durationTrend?.mann_kendall?.p_value === null ||
+                                durationTrend?.mann_kendall?.p_value === undefined ? (
+                                    <p>Not enough yearly data to test the trend.</p>
+                                ) : (
+                                    <>
+                                        <p>
+                                            <strong>Direction:</strong>{" "}
+                                            {durationTrend.mann_kendall.direction}
+                                        </p>
+                                        <p>
+                                            <strong>Test statistic (S):</strong>{" "}
+                                            {durationTrend.mann_kendall.s}
+                                        </p>
+                                        <p>
+                                            <strong>p-value:</strong>{" "}
+                                            {Number(
+                                                durationTrend.mann_kendall.p_value,
+                                            ).toFixed(4)}
+                                        </p>
+                                        <p>
+                                            <strong>Conclusion:</strong>{" "}
+                                            {durationTrend.mann_kendall.significant
+                                                ? "Statistically significant trend at the 5% level."
+                                                : "No statistically significant trend detected at the 5% level."}
+                                        </p>
+                                    </>
+                                )}
+                            </article>
                         </section>
 
                         <section className="chart-card">
