@@ -12,7 +12,9 @@ function App() {
     hazard: "heatwave",
   });
 
-  const [message, setMessage] = useState("");
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -22,15 +24,77 @@ function App() {
       [name]: value,
     }));
 
-    setMessage("");
+    setError("");
+    setAnalysis(null);
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    setMessage(
-      "Your selections are ready. Weather analysis will be connected in the next step."
-    );
+
+    setError("");
+    setAnalysis(null);
+
+    if (form.startDate > form.endDate) {
+      setError("Start date must be before or equal to end date.");
+      return;
+    }
+
+    const latitude = Number(form.latitude);
+    const longitude = Number(form.longitude);
+
+    if (
+      !Number.isFinite(latitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      !Number.isFinite(longitude) ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      setError("Please enter valid latitude and longitude values.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      latitude: String(latitude),
+      longitude: String(longitude),
+      start_date: form.startDate,
+      end_date: form.endDate,
+      baseline_start_date: "1991-01-01",
+      baseline_end_date: "2020-12-31",
+    });
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/analysis/heatwaves?${params.toString()}`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Could not complete the heatwave analysis."
+        );
+      }
+
+      setAnalysis(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not connect to the backend. Check that it is running."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
+
+  const trendDirection =
+    analysis?.yearly_trend?.trend?.direction;
+
+  const trendSlope =
+    analysis?.yearly_trend?.trend?.slope_heatwaves_per_year;
 
   return (
     <div className="app-shell">
@@ -113,7 +177,9 @@ function App() {
 
             <div>
               <h2>Configure your analysis</h2>
-              <p>Select a region and historical period to investigate.</p>
+              <p>
+                Select a region and historical period to investigate.
+              </p>
             </div>
 
             <span className="step-label">01 / CONFIGURE</span>
@@ -123,6 +189,7 @@ function App() {
             <div className="form-grid">
               <div className="field full-width">
                 <label htmlFor="location">Region name</label>
+
                 <input
                   id="location"
                   name="location"
@@ -132,11 +199,15 @@ function App() {
                   placeholder="For example, Pune, Maharashtra"
                   required
                 />
-                <small>Enter a descriptive name for your region.</small>
+
+                <small>
+                  Enter a descriptive name for your region.
+                </small>
               </div>
 
               <div className="field">
                 <label htmlFor="latitude">Latitude</label>
+
                 <input
                   id="latitude"
                   name="latitude"
@@ -152,6 +223,7 @@ function App() {
 
               <div className="field">
                 <label htmlFor="longitude">Longitude</label>
+
                 <input
                   id="longitude"
                   name="longitude"
@@ -167,6 +239,7 @@ function App() {
 
               <div className="field">
                 <label htmlFor="startDate">Start date</label>
+
                 <input
                   id="startDate"
                   name="startDate"
@@ -179,6 +252,7 @@ function App() {
 
               <div className="field">
                 <label htmlFor="endDate">End date</label>
+
                 <input
                   id="endDate"
                   name="endDate"
@@ -191,6 +265,7 @@ function App() {
 
               <div className="field full-width">
                 <label htmlFor="hazard">Hazard type</label>
+
                 <select
                   id="hazard"
                   name="hazard"
@@ -199,6 +274,7 @@ function App() {
                 >
                   <option value="heatwave">Heatwave</option>
                 </select>
+
                 <small>
                   Heatwave analysis is the first supported hazard.
                 </small>
@@ -211,14 +287,36 @@ function App() {
                 Historical baseline: 1991–2020
               </p>
 
-              <button type="submit" className="primary-button">
-                Prepare analysis <span>→</span>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={loading}
+              >
+                {loading ? "Analyzing..." : "Analyze heatwaves"}
+                <span>→</span>
               </button>
             </div>
 
-            {message && (
+            {loading && (
               <p className="form-message" role="status">
-                {message}
+                Fetching weather data and calculating heatwave trends.
+                This may take a little time for the first request.
+              </p>
+            )}
+
+            {error && (
+              <p
+                className="form-message error-message"
+                role="alert"
+              >
+                {error}
+              </p>
+            )}
+
+            {analysis && (
+              <p className="form-message" role="status">
+                Analysis completed. The baseline temperature threshold
+                is {analysis.baseline.threshold_c} °C.
               </p>
             )}
           </form>
@@ -228,10 +326,12 @@ function App() {
           <div className="section-heading compact-heading">
             <div>
               <h2>Analysis overview</h2>
-              <p>Your climate indicators will appear here.</p>
+              <p>Your climate indicators and results.</p>
             </div>
 
-            <span className="placeholder-tag">AWAITING DATA</span>
+            <span className="placeholder-tag">
+              {analysis ? "ANALYSIS COMPLETE" : "AWAITING DATA"}
+            </span>
           </div>
 
           <div className="metrics-grid">
@@ -240,7 +340,13 @@ function App() {
                 <span className="metric-icon orange">⌁</span>
                 <span className="metric-label">HEATWAVE EVENTS</span>
               </div>
-              <div className="metric-value">—</div>
+
+              <div className="metric-value">
+                {analysis
+                  ? analysis.summary.heatwave_count
+                  : "—"}
+              </div>
+
               <p>Total events detected</p>
             </article>
 
@@ -249,7 +355,13 @@ function App() {
                 <span className="metric-icon green">◷</span>
                 <span className="metric-label">HEATWAVE DAYS</span>
               </div>
-              <div className="metric-value">—</div>
+
+              <div className="metric-value">
+                {analysis
+                  ? analysis.summary.total_heatwave_days
+                  : "—"}
+              </div>
+
               <p>Total days in detected events</p>
             </article>
 
@@ -258,8 +370,19 @@ function App() {
                 <span className="metric-icon blue">↗</span>
                 <span className="metric-label">YEARLY TREND</span>
               </div>
-              <div className="metric-value metric-text">—</div>
-              <p>Change in annual event frequency</p>
+
+              <div className="metric-value metric-text">
+                {analysis && trendDirection
+                  ? trendDirection.replaceAll("_", " ")
+                  : "—"}
+              </div>
+
+              <p>
+                {analysis && trendSlope !== null &&
+                trendSlope !== undefined
+                  ? `${trendSlope} heatwaves per year`
+                  : "Change in annual event frequency"}
+              </p>
             </article>
           </div>
         </section>
@@ -271,17 +394,66 @@ function App() {
                 <h2>Heatwave frequency</h2>
                 <p>Year-by-year historical comparison</p>
               </div>
+
               <span className="chart-symbol">▥</span>
             </div>
 
-            <div className="empty-chart">
-              <div className="empty-chart-icon">⌁</div>
-              <h3>Trend chart coming next</h3>
-              <p>
-                Yearly counts and climate trends will be displayed
-                here after connecting the analysis API.
-              </p>
-            </div>
+            {analysis ? (
+              <div className="yearly-results">
+                {analysis.yearly_trend.yearly_counts.map((item) => (
+                  <div className="year-row" key={item.year}>
+                    <span className="year-label">{item.year}</span>
+
+                    <div
+                      className="year-bar-track"
+                      aria-label={`${item.heatwave_count} heatwaves in ${item.year}`}
+                    >
+                      <div
+                        className="year-bar"
+                        style={{
+                          width: `${
+                            Math.max(
+                              ...analysis.yearly_trend.yearly_counts.map(
+                                (entry) => entry.heatwave_count
+                              ),
+                              1
+                            ) === 0
+                              ? 0
+                              : (item.heatwave_count /
+                                  Math.max(
+                                    ...analysis.yearly_trend.yearly_counts.map(
+                                      (entry) => entry.heatwave_count
+                                    ),
+                                    1
+                                  )) *
+                                100
+                          }%`,
+                        }}
+                      />
+                    </div>
+
+                    <strong className="year-count">
+                      {item.heatwave_count}
+                    </strong>
+                  </div>
+                ))}
+
+                <p className="chart-footnote">
+                  {analysis.yearly_trend.note}
+                </p>
+              </div>
+            ) : (
+              <div className="empty-chart">
+                <div className="empty-chart-icon">⌁</div>
+
+                <h3>Trend chart coming next</h3>
+
+                <p>
+                  Run an analysis to display yearly heatwave counts
+                  and compare historical trends.
+                </p>
+              </div>
+            )}
           </article>
 
           <article className="panel methodology-panel" id="methodology">
@@ -293,7 +465,10 @@ function App() {
             </div>
 
             <div className="method-number">95th</div>
-            <div className="method-title">Percentile threshold</div>
+
+            <div className="method-title">
+              Percentile threshold
+            </div>
 
             <p className="method-description">
               A heatwave is identified when daily maximum temperature
@@ -310,12 +485,23 @@ function App() {
               <span>Reference period</span>
               <strong>1991–2020</strong>
             </div>
+
+            {analysis && (
+              <div className="method-rule">
+                <span>Calculated threshold</span>
+                <strong>
+                  {analysis.baseline.threshold_c} °C
+                </strong>
+              </div>
+            )}
           </article>
         </section>
 
         <footer className="page-footer">
           <span>CLIMATE INSIGHTS LAB</span>
-          <span>Historical weather analysis · Data-driven insights</span>
+          <span>
+            Historical weather analysis · Data-driven insights
+          </span>
         </footer>
       </main>
     </div>
