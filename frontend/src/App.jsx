@@ -5,6 +5,7 @@ import "./App.css";
 import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
 import HeatwaveEvents from "./components/HeatwaveEvents";
 import TemperatureHistoryChart from "./components/TemperatureHistoryChart";
+import exportToCsv from "./utils/exportCsv";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -111,6 +112,37 @@ function App() {
     setError("");
   }
 
+  function handleExportHeatwaveEvents() {
+    const events = analysis?.events || [];
+
+    const headers = [
+      "Event",
+      "Start Date",
+      "End Date",
+      "Duration (days)",
+      "Peak Temperature (°C)",
+    ];
+
+    const rows = events.map((event, index) => [
+      index + 1,
+      event.start_date ?? "",
+      event.end_date ?? "",
+      event.duration_days ?? "",
+      event.peak_temperature_c ?? "",
+    ]);
+
+    const safeLocation = form.location
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    const filename =
+      `heatwave-events-${safeLocation || "location"}-` +
+      `${form.startDate}-to-${form.endDate}.csv`;
+
+    exportToCsv(filename, headers, rows);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -151,7 +183,6 @@ function App() {
     setTemperatureHistory(null);
 
     try {
-      // Request the heatwave analysis.
       const analysisParams = new URLSearchParams({
         latitude: String(latitude),
         longitude: String(longitude),
@@ -166,7 +197,9 @@ function App() {
       );
 
       if (!analysisResponse.ok) {
-        const responseData = await analysisResponse.json().catch(() => null);
+        const responseData = await analysisResponse
+          .json()
+          .catch(() => null);
 
         throw new Error(
           responseData?.detail || "Unable to complete heatwave analysis."
@@ -176,7 +209,8 @@ function App() {
       const analysisData = await analysisResponse.json();
       setAnalysis(analysisData);
 
-      // Request daily maximum temperatures for the same location and dates.
+      // Load daily temperatures separately so heatwave results
+      // remain available even if this request fails.
       try {
         const historyParams = new URLSearchParams({
           latitude: String(latitude),
@@ -203,8 +237,7 @@ function App() {
       }
     } catch (err) {
       setError(
-        err.message ||
-          "Something went wrong while running the analysis."
+        err.message || "Something went wrong while running the analysis."
       );
     } finally {
       setLoading(false);
@@ -307,7 +340,11 @@ function App() {
                     >
                       <span className="location-result-details">
                         <strong>
-                          {[location.name, location.region, location.country]
+                          {[
+                            location.name,
+                            location.region,
+                            location.country,
+                          ]
                             .filter(Boolean)
                             .join(", ")}
                         </strong>
@@ -529,6 +566,7 @@ function App() {
                   The configured baseline period is January 1, 1991,
                   to December 31, 2020.
                 </p>
+
                 {baseline?.threshold_c != null && (
                   <div className="threshold-value">
                     <span>Temperature threshold</span>
@@ -549,6 +587,15 @@ function App() {
                     this analysis.
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleExportHeatwaveEvents}
+                  title="Download heatwave events as a CSV file"
+                >
+                  Export CSV
+                </button>
               </div>
 
               <HeatwaveEvents events={analysis.events || []} />
