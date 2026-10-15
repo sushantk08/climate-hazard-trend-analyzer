@@ -178,6 +178,82 @@ def health_check():
     return {"status": "ok"}
 
 
+
+
+@app.get("/locations/search")
+async def search_locations(
+    name: str = Query(min_length=2, max_length=100),
+    count: int = Query(default=5, ge=1, le=10),
+):
+    """Search for cities and return their coordinates."""
+
+    name = name.strip()
+
+    if len(name) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter at least two characters to search for a location.",
+        )
+
+    url = "https://geocoding-api.open-meteo.com/v1/search"
+
+    params = {
+        "name": name,
+        "count": count,
+        "language": "en",
+        "format": "json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="The location search took too long. Please try again.",
+        )
+
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(
+            status_code=502,
+            detail="Could not retrieve locations from the search service.",
+        )
+
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="The location service returned an invalid response.",
+        )
+
+    results = data.get("results", [])
+
+    locations = [
+        {
+            "name": item.get("name"),
+            "region": item.get("admin1"),
+            "country": item.get("country"),
+            "country_code": item.get("country_code"),
+            "latitude": item.get("latitude"),
+            "longitude": item.get("longitude"),
+            "timezone": item.get("timezone"),
+        }
+        for item in results
+        if isinstance(item, dict)
+        and item.get("latitude") is not None
+        and item.get("longitude") is not None
+    ]
+
+    return {
+        "query": name,
+        "count": len(locations),
+        "locations": locations,
+    }
+
+
+
 @app.get("/weather/history")
 async def get_historical_weather(
     latitude: float = Query(default=18.5204, ge=-90, le=90),
