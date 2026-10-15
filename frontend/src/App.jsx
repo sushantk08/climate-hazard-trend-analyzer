@@ -44,6 +44,29 @@ function App() {
         setTemperatureHistoryError("");
     }
 
+    function handleReset() {
+        setForm({
+            location: "Pune, Maharashtra, India",
+            latitude: "18.5204",
+            longitude: "73.8567",
+            startDate: "2019-01-01",
+            endDate: "2024-12-31",
+            hazard: "heatwave",
+            baselineStartDate: "1991-01-01",
+            baselineEndDate: "2020-12-31",
+        });
+
+        setLocationQuery("Pune");
+        setLocationResults([]);
+        setLocationSearchError("");
+        setAnalysis(null);
+        setTemperatureHistory(null);
+        setTemperatureHistoryError("");
+        setError("");
+        setLoading(false);
+        setSearchingLocations(false);
+    }
+
     async function handleLocationSearch(event) {
         event.preventDefault();
 
@@ -568,6 +591,15 @@ function App() {
                                 {loading
                                     ? "Analyzing..."
                                     : "Run Heatwave Analysis"}
+                            </button>
+
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={handleReset}
+                                disabled={loading}
+                            >
+                                Reset Dashboard
                             </button>
                         </div>
                     </form>
