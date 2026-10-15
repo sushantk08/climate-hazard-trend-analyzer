@@ -40,8 +40,11 @@ function App() {
             [name]: value,
         }));
 
-        setError("");
+        // Clear results so they don't appear to match new inputs.
+        setAnalysis(null);
+        setTemperatureHistory(null);
         setTemperatureHistoryError("");
+        setError("");
     }
 
     function handleReset() {
