@@ -4,9 +4,11 @@ import "./App.css";
 import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
 import HeatwaveEvents from "./components/HeatwaveEvents";
 
+const API_BASE_URL = "http://127.0.0.1:8000";
+
 function App() {
   const [form, setForm] = useState({
-    location: "Pune, Maharashtra",
+    location: "Pune, Maharashtra, India",
     latitude: "18.5204",
     longitude: "73.8567",
     startDate: "2019-01-01",
@@ -14,9 +16,90 @@ function App() {
     hazard: "heatwave",
   });
 
+  const [locationQuery, setLocationQuery] = useState("Pune");
+  const [locationResults, setLocationResults] = useState([]);
+  const [searchingLocations, setSearchingLocations] = useState(false);
+  const [locationSearchError, setLocationSearchError] = useState("");
+
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleLocationSearch() {
+    const query = locationQuery.trim();
+
+    setLocationSearchError("");
+    setLocationResults([]);
+
+    if (query.length < 2) {
+      setLocationSearchError(
+        "Enter at least two characters to search for a city."
+      );
+      return;
+    }
+
+    setSearchingLocations(true);
+
+    try {
+      const params = new URLSearchParams({
+        name: query,
+        count: "5",
+      });
+
+      const response = await fetch(
+        `${API_BASE_URL}/locations/search?${params.toString()}`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Could not search for locations."
+        );
+      }
+
+      const locations = data.locations || [];
+
+      if (locations.length === 0) {
+        setLocationSearchError(
+          "No matching locations found. Try another city name."
+        );
+      } else {
+        setLocationResults(locations);
+      }
+    } catch (err) {
+      setLocationSearchError(
+        err instanceof Error
+          ? err.message
+          : "Could not connect to the location search API."
+      );
+    } finally {
+      setSearchingLocations(false);
+    }
+  }
+
+  function handleLocationSelect(location) {
+    const locationName = [
+      location.name,
+      location.region,
+      location.country,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    setForm((currentForm) => ({
+      ...currentForm,
+      location: locationName,
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+    }));
+
+    setLocationQuery(location.name);
+    setLocationResults([]);
+    setLocationSearchError("");
+    setAnalysis(null);
+    setError("");
+  }
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -69,7 +152,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/analysis/heatwaves?${params.toString()}`
+        `${API_BASE_URL}/analysis/heatwaves?${params.toString()}`
       );
 
       const data = await response.json();
@@ -189,21 +272,87 @@ function App() {
           <form onSubmit={handleSubmit}>
             <div className="form-grid">
               <div className="field full-width">
-                <label htmlFor="location">Region name</label>
+                <label htmlFor="locationQuery">Search for a city</label>
+
+                <div className="location-search-row">
+                  <input
+                    id="locationQuery"
+                    type="text"
+                    value={locationQuery}
+                    onChange={(event) => {
+                      setLocationQuery(event.target.value);
+                      setLocationResults([]);
+                      setLocationSearchError("");
+                    }}
+                    placeholder="For example, Mumbai or Nagpur"
+                    minLength={2}
+                    maxLength={100}
+                    autoComplete="off"
+                  />
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleLocationSearch}
+                    disabled={searchingLocations}
+                  >
+                    {searchingLocations ? "Searching..." : "Search"}
+                  </button>
+                </div>
+
+                <small>
+                  Search for a city and select the correct location.
+                </small>
+
+                {locationSearchError && (
+                  <p className="location-search-error" role="alert">
+                    {locationSearchError}
+                  </p>
+                )}
+
+                {locationResults.length > 0 && (
+                  <div
+                    className="location-results"
+                    role="list"
+                    aria-label="Matching locations"
+                  >
+                    {locationResults.map((location) => (
+                      <button
+                        type="button"
+                        className="location-result"
+                        key={`${location.name}-${location.latitude}-${location.longitude}`}
+                        onClick={() => handleLocationSelect(location)}
+                      >
+                        <span className="location-result-details">
+                          <strong>{location.name}</strong>
+
+                          <span>
+                            {[location.region, location.country]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </span>
+                        </span>
+
+                        <span className="location-coordinates">
+                          {Number(location.latitude).toFixed(3)},{" "}
+                          {Number(location.longitude).toFixed(3)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="field full-width">
+                <label htmlFor="location">Selected region</label>
 
                 <input
                   id="location"
                   name="location"
                   type="text"
                   value={form.location}
-                  onChange={handleChange}
-                  placeholder="For example, Pune, Maharashtra"
-                  required
+                  readOnly
                 />
-
-                <small>
-                  Enter a descriptive name for your region.
-                </small>
               </div>
 
               <div className="field">
@@ -306,10 +455,7 @@ function App() {
             )}
 
             {error && (
-              <p
-                className="form-message error-message"
-                role="alert"
-              >
+              <p className="form-message error-message" role="alert">
                 {error}
               </p>
             )}
@@ -343,9 +489,7 @@ function App() {
               </div>
 
               <div className="metric-value">
-                {analysis
-                  ? analysis.summary.heatwave_count
-                  : "—"}
+                {analysis ? analysis.summary.heatwave_count : "—"}
               </div>
 
               <p>Total events detected</p>
@@ -358,9 +502,7 @@ function App() {
               </div>
 
               <div className="metric-value">
-                {analysis
-                  ? analysis.summary.total_heatwave_days
-                  : "—"}
+                {analysis ? analysis.summary.total_heatwave_days : "—"}
               </div>
 
               <p>Total days in detected events</p>
@@ -435,9 +577,7 @@ function App() {
 
             <div className="method-number">95th</div>
 
-            <div className="method-title">
-              Percentile threshold
-            </div>
+            <div className="method-title">Percentile threshold</div>
 
             <p className="method-description">
               A heatwave is identified when daily maximum temperature
@@ -458,17 +598,13 @@ function App() {
             {analysis && (
               <div className="method-rule">
                 <span>Calculated threshold</span>
-                <strong>
-                  {analysis.baseline.threshold_c} °C
-                </strong>
+                <strong>{analysis.baseline.threshold_c} °C</strong>
               </div>
             )}
           </article>
         </section>
 
-        {analysis && (
-          <HeatwaveEvents events={analysis.events} />
-        )}
+        {analysis && <HeatwaveEvents events={analysis.events} />}
 
         <footer className="page-footer">
           <span>CLIMATE INSIGHTS LAB</span>
