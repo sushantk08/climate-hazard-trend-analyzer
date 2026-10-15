@@ -6,7 +6,10 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.heatwave import calculate_percentile, detect_heatwaves
-from app.trends import calculate_linear_trend
+from app.trends import (
+    calculate_linear_trend,
+    calculate_mann_kendall,
+)
 from app.weather_cache import get_weather_records_collection
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -439,11 +442,23 @@ async def analyze_heatwaves(
             [item["heatwave_days"] for item in yearly_data],
         )
 
+        # Check whether both yearly series have a monotonic trend.
+        frequency_mk_result = calculate_mann_kendall(
+            [item["year"] for item in yearly_data],
+            [item["heatwave_count"] for item in yearly_data],
+        )
+
+        duration_mk_result = calculate_mann_kendall(
+            [item["year"] for item in yearly_data],
+            [item["heatwave_days"] for item in yearly_data],
+        )
+
         yearly_trend = {
             "direction": frequency_result["direction"],
             "slope_heatwaves_per_year": (
                 frequency_result["slope_per_year"]
             ),
+            "mann_kendall": frequency_mk_result,
         }
 
         duration_trend = {
@@ -451,17 +466,44 @@ async def analyze_heatwaves(
             "slope_heatwave_days_per_year": (
                 duration_result["slope_per_year"]
             ),
+            "mann_kendall": duration_mk_result,
         }
 
     else:
         yearly_trend = {
             "direction": "insufficient_data",
             "slope_heatwaves_per_year": None,
+            "mann_kendall": {
+                "direction": "insufficient_data",
+                "s": None,
+                "variance_s": None,
+                "z_score": None,
+                "p_value": None,
+                "alpha": 0.05,
+                "significant": None,
+                "method": (
+                    "Mann-Kendall test with tie correction "
+                    "and normal approximation"
+               ),
+            },
         }
 
         duration_trend = {
             "direction": "insufficient_data",
             "slope_heatwave_days_per_year": None,
+            "mann_kendall": {
+               "direction": "insufficient_data",
+               "s": None,
+               "variance_s": None,
+               "z_score": None,
+               "p_value": None,
+               "alpha": 0.05,
+               "significant": None,
+               "method": (
+                  "Mann-Kendall test with tie correction "
+                  "and normal approximation"
+                ),
+            },           
         }
 
 
