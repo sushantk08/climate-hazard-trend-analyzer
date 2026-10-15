@@ -5,9 +5,10 @@ import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
 import HeatwaveEvents from "./components/HeatwaveEvents";
 import TemperatureHistoryChart from "./components/TemperatureHistoryChart";
 import exportToCsv from "./utils/exportCsv";
+import LocationMap from "./components/LocationMap";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+    import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 function App() {
     const [form, setForm] = useState({
@@ -162,6 +163,25 @@ function App() {
             location: locationName,
             latitude: String(location.latitude),
             longitude: String(location.longitude),
+        }));
+
+        setLocationResults([]);
+        setLocationSearchError("");
+        setAnalysis(null);
+        setTemperatureHistory(null);
+        setTemperatureHistoryError("");
+        setError("");
+    }
+
+    function handleMapCoordinatesSelect({ latitude, longitude }) {
+        const selectedLatitude = String(latitude);
+        const selectedLongitude = String(longitude);
+
+        setForm((previousForm) => ({
+            ...previousForm,
+            location: `Map location (${selectedLatitude}, ${selectedLongitude})`,
+            latitude: selectedLatitude,
+            longitude: selectedLongitude,
         }));
 
         setLocationResults([]);
@@ -514,6 +534,15 @@ function App() {
                                     ))}
                                 </div>
                             )}
+                        </div>
+
+                        <div className="location-map-field">
+                            <h3>Select a location on the map</h3>
+                            <LocationMap
+                                latitude={form.latitude}
+                                longitude={form.longitude}
+                                onCoordinatesSelect={handleMapCoordinatesSelect}
+                            />
                         </div>
 
                         <div className="form-grid">
