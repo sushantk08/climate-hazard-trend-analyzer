@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 
 import HeatwaveTrendChart from "./components/HeatwaveTrendChart";
@@ -31,6 +31,35 @@ function App() {
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [apiStatus, setApiStatus] = useState("checking");
+
+    useEffect(() => {
+        let isMounted = true;
+
+        async function checkApiHealth() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+
+                if (!response.ok) {
+                    throw new Error("Backend health check failed.");
+                }
+
+                if (isMounted) {
+                    setApiStatus("online");
+                }
+            } catch {
+                if (isMounted) {
+                    setApiStatus("offline");
+                }
+            }
+        }
+
+        checkApiHealth();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     function handleChange(event) {
         const { name, value } = event.target;
@@ -385,9 +414,20 @@ function App() {
                         </p>
                     </div>
 
-                    <div className="status-indicator">
-                        <span className="status-dot"></span>
-                        Analysis workspace
+                    <div
+                        className={`status-indicator api-status-${apiStatus}`}
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span
+                            className={`status-dot status-dot-${apiStatus}`}
+                        ></span>
+
+                        {apiStatus === "checking"
+                            ? "Checking backend..."
+                            : apiStatus === "online"
+                              ? "Backend connected"
+                              : "Backend unavailable"}
                     </div>
                 </header>
 
