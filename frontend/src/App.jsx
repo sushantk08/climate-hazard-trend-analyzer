@@ -291,12 +291,25 @@ function App() {
         </header>
 
         <section className="configuration-card">
-          <div className="section-heading">
-            <div>
-              <h2>Analysis Configuration</h2>
-              <p>Choose a location and the period you want to analyze.</p>
-            </div>
-          </div>
+          
+        <div className="section-heading">
+           <div>
+              <h2>Daily Temperature History</h2>
+              <p>
+                 Daily maximum temperatures for the selected location and date range.
+              </p>
+           </div>
+
+        <button
+            type="button"
+            className="secondary-button"
+            onClick={handleExportTemperatureHistory}
+            disabled={!temperatureHistory || temperatureHistory.length === 0}
+         >
+           Export CSV
+        </button>
+       </div>
+
 
           <form onSubmit={handleSubmit}>
             <div className="form-group">
@@ -622,5 +635,31 @@ function App() {
     </div>
   );
 }
+
+
+function handleExportTemperatureHistory() {
+  if (!temperatureHistory || temperatureHistory.length === 0) {
+    return;
+  }
+
+  const headers = ["Date", "Daily Maximum Temperature (°C)"];
+
+  const rows = temperatureHistory.map((day) => [
+    day.date,
+    day.temperature_max_c,
+  ]);
+
+  const safeLocation = form.location
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const filename =
+    `temperature-history-${safeLocation || "location"}-` +
+    `${form.startDate}-to-${form.endDate}.csv`;
+
+  exportToCsv(filename, headers, rows);
+}
+
 
 export default App;
