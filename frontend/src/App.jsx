@@ -6,6 +6,7 @@ import HeatwaveEvents from "./components/HeatwaveEvents";
 import TemperatureHistoryChart from "./components/TemperatureHistoryChart";
 import exportToCsv from "./utils/exportCsv";
 import LocationMap from "./components/LocationMap";
+import exportAnalysisToPdf from "./utils/exportPdf";
 
 const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -246,6 +247,18 @@ function App() {
             `${form.startDate}-to-${form.endDate}.csv`;
 
         exportToCsv(filename, headers, rows);
+    }
+
+    function handleExportPdf() {
+        if (!analysis) {
+            return;
+        }
+
+        exportAnalysisToPdf({
+            form,
+            analysis,
+            temperatureStats,
+        });
     }
 
     async function handleSubmit(event) {
@@ -699,9 +712,20 @@ function App() {
                                     {form.startDate} to {form.endDate}
                                 </p>
                             </div>
-                            <span className="result-badge">
-                                Analysis complete
-                            </span>
+                            <div className="results-actions">
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={handleExportPdf}
+                                    disabled={!analysis}
+                                >
+                                    Download PDF Report
+                                </button>
+
+                                <span className="result-badge">
+                                    Analysis complete
+                                </span>
+                            </div>
                         </section>
 
                         <section className="metrics-grid">
