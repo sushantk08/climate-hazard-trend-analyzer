@@ -56,8 +56,13 @@ function App() {
 
         checkApiHealth();
 
+        const intervalId = window.setInterval(() => {
+            checkApiHealth();
+        }, 30000);
+
         return () => {
             isMounted = false;
+            window.clearInterval(intervalId);
         };
     }, []);
 
